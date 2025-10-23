@@ -1,83 +1,71 @@
-name: ci
+name: ci-arm64
 
 on:
-  pull_request:
   push:
     branches:
       - master
+  pull_request:
   schedule:
-    # See https://crontab.guru/weekly
-    - cron: 0 0 * * 0
+    - cron: 0 0 * * 0  # Weekly
 
 jobs:
-  pre-commit:
+  build-arm64:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v6
-      - name: Set PY
-        run: |
-          echo "PY=$(python -c 'import hashlib,sys;print(hashlib.sha256(sys.version.encode()+sys.executable.encode()).hexdigest())')" >> $GITHUB_ENV
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/pre-commit
-          key: pre-commit|${{ env.PY }}|${{ hashFiles('.pre-commit-config.yaml') }}
-      - uses: pre-commit/action@v1.0.1
 
-  build-test-push:
-    runs-on: ubuntu-latest
-    needs: pre-commit
-    strategy:
-      fail-fast: false
-      matrix:
-        pg_version:
-          - "17"
-          - "16"
-          - "15"
-          - "14"
-          - "13"
-          - "12"
-          - "11"
-          - "10"
-          - "9.6"
     env:
-      # Indicates what's the equivalent to tecnativa/postgres-autoconf:latest image
-      LATEST_RELEASE: "17-alpine"
+      PG_VERSION: "17"
       DOCKER_REPO: tecnativa/postgres-autoconf
-      DOCKER_TAG: ${{ matrix.pg_version }}-alpine
+      DOCKER_TAG: 17-alpine
       GIT_SHA1: ${{ github.sha }}
       IS_PR: ${{ github.event_name == 'pull_request' }}
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v6
       - run: pip install -r tests/ci-requirements.txt
 
-      # Build images
-      - run: ./hooks/build
-      # Test
-      - run: python -m unittest tests.test -v
+      # ✅ Setup QEMU untuk emulasi ARM
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      # ✅ Setup Buildx untuk build arsitektur ARM64
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          install: true
+
+      # 🧱 Build image ARM64
+      - name: Build Docker Image (ARM64)
+        run: |
+          docker buildx build \
+            --platform linux/arm64 \
+            -t ${{ env.DOCKER_REPO }}:${{ env.DOCKER_TAG }} \
+            --load \
+            .
+
+      # 🧪 Jalankan test
+      - name: Run tests
+        run: python -m unittest tests.test -v
+
+      # 🏷️ Set tag final
       - name: Set Docker Tag
         run: |
           if [ "${{ env.IS_PR }}" = "true" ]; then
-            echo "DOCKER_TAG=${{ matrix.pg_version }}-test-pr${{ github.event.number }}" >> $GITHUB_ENV
+            echo "DOCKER_TAG=17-test-pr${{ github.event.number }}" >> $GITHUB_ENV
           else
-            echo "DOCKER_TAG=${{ matrix.pg_version }}-alpine" >> $GITHUB_ENV
+            echo "DOCKER_TAG=17-alpine" >> $GITHUB_ENV
           fi
-      - name: Tag Docker Image for PR
-        if: env.IS_PR
-        run: docker tag ${{ env.DOCKER_REPO }}:${{ matrix.pg_version }}-alpine ${{ env.DOCKER_REPO }}:${{ env.DOCKER_TAG }}
-      # Push
-      - name: Push Docker Image to Docker Hub
-        if: github.repository == 'Tecnativa/docker-postgres-autoconf' && (env.IS_PR || github.ref == 'refs/heads/master')
-        env:
-          REGISTRY_HOST: docker.io
-          REGISTRY_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          REGISTRY_USERNAME: ${{ secrets.DOCKERHUB_LOGIN }}
-        run: ./hooks/push
+
+      # 🚀 Push ke GitHub Container Registry (GHCR)
       - name: Push Docker Image to GitHub Registry
         if: github.repository == 'Tecnativa/docker-postgres-autoconf' && (env.IS_PR || github.ref == 'refs/heads/master')
         env:
           REGISTRY_HOST: ghcr.io
           REGISTRY_TOKEN: ${{ secrets.BOT_TOKEN }}
           REGISTRY_USERNAME: ${{ secrets.BOT_LOGIN }}
-        run: ./hooks/push
+        run: |
+          docker login ghcr.io -u "$REGISTRY_USERNAME" -p "$REGISTRY_TOKEN"
+          docker buildx build \
+            --platform linux/arm64 \
+            -t ghcr.io/${{ env.DOCKER_REPO }}:${{ env.DOCKER_TAG }} \
+            --push .
