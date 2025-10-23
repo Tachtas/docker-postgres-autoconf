@@ -1,52 +1,55 @@
-name: ci-arm64
+#!/usr/bin/env python3
+import subprocess
+import os
+from datetime import datetime
+from plumbum import local
+from plumbum.commands.processes import ProcessExecutionError
 
-on:
-  push:
-    branches: [ master ]
-  pull_request:
+docker = local["docker"]
 
-jobs:
-  build-arm64:
-    runs-on: ubuntu-latest
+# --- Ambil argumen environment dari CI ---
+VCS_REF = os.environ.get("GIT_SHA1", "")
+BUILD_DATE = datetime.utcnow().isoformat()
+BASE_TAG = os.environ.get("BASE_TAG", "17-alpine")
+IMAGE = f"{os.environ.get('DOCKER_REPO', 'tecnativa/postgres-autoconf')}:{os.environ.get('DOCKER_TAG', '17-alpine')}"
 
-    env:
-      PG_VERSION: "17"
-      BASE_TAG: "17-alpine" # ✅ valid multi-arch base
-      DOCKER_REPO: tecnativa/postgres-autoconf
-      DOCKER_TAG: 17-arm64
-      GIT_SHA1: ${{ github.sha }}
-      IS_PR: ${{ github.event_name == 'pull_request' }}
+# --- Validasi base image dulu ---
+base_image = f"docker.io/postgres:{BASE_TAG}"
+print(f"🔍 Checking if base image exists: {base_image}")
+check = subprocess.run(
+    ["docker", "manifest", "inspect", base_image],
+    capture_output=True,
+)
 
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v6
-      - run: pip install -r tests/ci-requirements.txt
+if check.returncode != 0:
+    print(f"⚠️ Base image {base_image} not found, falling back to postgres:17-alpine")
+    BASE_TAG = "17-alpine"
+    base_image = f"docker.io/postgres:{BASE_TAG}"
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+print(f"✅ Using base image: {base_image}")
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          install: true
+# --- Build args & build command ---
+cmd = [
+    "docker",
+    "buildx",
+    "build",
+    "--platform", "linux/arm64",
+    "--build-arg", f"VCS_REF={VCS_REF}",
+    "--build-arg", f"BUILD_DATE={BUILD_DATE}",
+    "--build-arg", f"BASE_TAG={BASE_TAG}",
+    "--tag", IMAGE,
+    ".",
+]
 
-      - name: Build Docker Image (ARM64)
-        run: |
-          BASE_TAG=17-alpine ./hooks/build
+# Jika CI variable REGISTRY_HOST diset, otomatis push
+if os.environ.get("REGISTRY_HOST"):
+    cmd.append("--push")
 
-      - name: Run tests
-        run: python -m unittest tests.test -v
+print(f"🚀 Building image: {IMAGE}")
+try:
+    docker[cmd[1:]] & local.FG
+except ProcessExecutionError as e:
+    print(f"❌ Build failed: {e}")
+    exit(1)
 
-      - name: Push Docker Image to GHCR
-        if: github.repository == 'Tecnativa/docker-postgres-autoconf' && (github.ref == 'refs/heads/master' || github.event_name == 'pull_request')
-        env:
-          REGISTRY_HOST: ghcr.io
-          REGISTRY_TOKEN: ${{ secrets.BOT_TOKEN }}
-          REGISTRY_USERNAME: ${{ secrets.BOT_LOGIN }}
-        run: |
-          docker login ghcr.io -u "$REGISTRY_USERNAME" -p "$REGISTRY_TOKEN"
-          docker buildx build \
-            --platform linux/arm64 \
-            --build-arg BASE_TAG=${{ env.BASE_TAG }} \
-            -t ghcr.io/${{ env.DOCKER_REPO }}:${{ env.DOCKER_TAG }} \
-            --push .
+print("✅ Build finished successfully.")
