@@ -6,7 +6,7 @@ on:
       - master
   pull_request:
   schedule:
-    - cron: 0 0 * * 0  # Weekly
+    - cron: 0 0 * * 0  # Weekly build
 
 jobs:
   build-arm64:
@@ -14,40 +14,45 @@ jobs:
 
     env:
       PG_VERSION: "17"
+      BASE_TAG: "17-alpine"
       DOCKER_REPO: tecnativa/postgres-autoconf
       DOCKER_TAG: 17-alpine
       GIT_SHA1: ${{ github.sha }}
       IS_PR: ${{ github.event_name == 'pull_request' }}
 
     steps:
+      # 🧩 Checkout source
       - uses: actions/checkout@v4
+
+      # 🐍 Setup Python (for tests)
       - uses: actions/setup-python@v6
       - run: pip install -r tests/ci-requirements.txt
 
-      # ✅ Setup QEMU untuk emulasi ARM
+      # ⚙️ Enable QEMU (to emulate ARM64)
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
-      # ✅ Setup Buildx untuk build arsitektur ARM64
+      # 🧱 Enable Docker Buildx
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
           install: true
 
-      # 🧱 Build image ARM64
+      # 🏗️ Build ARM64 image locally (for testing)
       - name: Build Docker Image (ARM64)
         run: |
           docker buildx build \
             --platform linux/arm64 \
+            --build-arg BASE_TAG=${{ env.BASE_TAG }} \
             -t ${{ env.DOCKER_REPO }}:${{ env.DOCKER_TAG }} \
             --load \
             .
 
-      # 🧪 Jalankan test
+      # 🧪 Run tests
       - name: Run tests
         run: python -m unittest tests.test -v
 
-      # 🏷️ Set tag final
+      # 🏷️ Set final tag (for PR vs master)
       - name: Set Docker Tag
         run: |
           if [ "${{ env.IS_PR }}" = "true" ]; then
@@ -56,7 +61,7 @@ jobs:
             echo "DOCKER_TAG=17-alpine" >> $GITHUB_ENV
           fi
 
-      # 🚀 Push ke GitHub Container Registry (GHCR)
+      # 🚀 Push to GitHub Container Registry (GHCR)
       - name: Push Docker Image to GitHub Registry
         if: github.repository == 'Tecnativa/docker-postgres-autoconf' && (env.IS_PR || github.ref == 'refs/heads/master')
         env:
@@ -67,5 +72,6 @@ jobs:
           docker login ghcr.io -u "$REGISTRY_USERNAME" -p "$REGISTRY_TOKEN"
           docker buildx build \
             --platform linux/arm64 \
+            --build-arg BASE_TAG=${{ env.BASE_TAG }} \
             -t ghcr.io/${{ env.DOCKER_REPO }}:${{ env.DOCKER_TAG }} \
             --push .
