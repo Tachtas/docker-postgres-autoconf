@@ -1,55 +1,46 @@
-#!/usr/bin/env python3
-import subprocess
-import os
-from datetime import datetime
-from plumbum import local
-from plumbum.commands.processes import ProcessExecutionError
+name: ci
 
-docker = local["docker"]
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  schedule:
+    - cron: "0 0 * * 0"
 
-# --- Ambil argumen environment dari CI ---
-VCS_REF = os.environ.get("GIT_SHA1", "")
-BUILD_DATE = datetime.utcnow().isoformat()
-BASE_TAG = os.environ.get("BASE_TAG", "17-alpine")
-IMAGE = f"{os.environ.get('DOCKER_REPO', 'tecnativa/postgres-autoconf')}:{os.environ.get('DOCKER_TAG', '17-alpine')}"
+jobs:
+  build-arm64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-# --- Validasi base image dulu ---
-base_image = f"docker.io/postgres:{BASE_TAG}"
-print(f"🔍 Checking if base image exists: {base_image}")
-check = subprocess.run(
-    ["docker", "manifest", "inspect", base_image],
-    capture_output=True,
-)
+      - name: Set up QEMU for ARM64 build
+        uses: docker/setup-qemu-action@v3
 
-if check.returncode != 0:
-    print(f"⚠️ Base image {base_image} not found, falling back to postgres:17-alpine")
-    BASE_TAG = "17-alpine"
-    base_image = f"docker.io/postgres:{BASE_TAG}"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-print(f"✅ Using base image: {base_image}")
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.BOT_LOGIN }}
+          password: ${{ secrets.BOT_TOKEN }}
 
-# --- Build args & build command ---
-cmd = [
-    "docker",
-    "buildx",
-    "build",
-    "--platform", "linux/arm64",
-    "--build-arg", f"VCS_REF={VCS_REF}",
-    "--build-arg", f"BUILD_DATE={BUILD_DATE}",
-    "--build-arg", f"BASE_TAG={BASE_TAG}",
-    "--tag", IMAGE,
-    ".",
-]
+      - name: Set environment variables
+        run: |
+          echo "BASE_TAG=17" >> $GITHUB_ENV
+          echo "DOCKER_REPO=ghcr.io/${{ github.repository_owner }}/postgres-autoconf" >> $GITHUB_ENV
+          echo "DOCKER_TAG=17-arm64" >> $GITHUB_ENV
+          echo "GIT_SHA1=${{ github.sha }}" >> $GITHUB_ENV
+          echo "REGISTRY_HOST=ghcr.io" >> $GITHUB_ENV
 
-# Jika CI variable REGISTRY_HOST diset, otomatis push
-if os.environ.get("REGISTRY_HOST"):
-    cmd.append("--push")
+      - name: Install Python requirements
+        run: pip install -r tests/ci-requirements.txt
 
-print(f"🚀 Building image: {IMAGE}")
-try:
-    docker[cmd[1:]] & local.FG
-except ProcessExecutionError as e:
-    print(f"❌ Build failed: {e}")
-    exit(1)
+      - name: Build ARM64 image
+        run: ./hooks/build
 
-print("✅ Build finished successfully.")
+      - name: Push result (if any)
+        if: success()
+        run: echo "✅ ARM64 image built and pushed to GHCR"
