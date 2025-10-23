@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up QEMU for ARM64 build
+      - name: Set up QEMU for ARM64
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
@@ -35,12 +35,12 @@ jobs:
           echo "GIT_SHA1=${{ github.sha }}" >> $GITHUB_ENV
           echo "REGISTRY_HOST=ghcr.io" >> $GITHUB_ENV
 
-      - name: Install Python requirements
+      - name: Install Python dependencies
         run: pip install -r tests/ci-requirements.txt
 
       - name: Build ARM64 image
         run: ./hooks/build
 
-      - name: Push result (if any)
+      - name: Confirm result
         if: success()
         run: echo "✅ ARM64 image built and pushed to GHCR"
