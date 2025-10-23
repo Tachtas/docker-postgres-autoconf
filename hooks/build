@@ -2,7 +2,7 @@
 import subprocess
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
 
@@ -10,7 +10,7 @@ docker = local["docker"]
 
 # --- Ambil argumen environment dari CI ---
 VCS_REF = os.environ.get("GIT_SHA1", "")
-BUILD_DATE = datetime.utcnow().isoformat()
+BUILD_DATE = datetime.now(timezone.utc).isoformat()
 BASE_TAG = os.environ.get("BASE_TAG", "17-alpine")
 IMAGE = f"{os.environ.get('DOCKER_REPO', 'tecnativa/postgres-autoconf')}:{os.environ.get('DOCKER_TAG', BASE_TAG)}"
 
@@ -35,7 +35,7 @@ print(f"✅ Using base image: {base_image}")
 
 # --- Build command ---
 cmd = [
-    "docker", "buildx", "build",
+    "buildx", "build",
     "--platform", "linux/arm64",
     "--build-arg", f"VCS_REF={VCS_REF}",
     "--build-arg", f"BUILD_DATE={BUILD_DATE}",
@@ -51,10 +51,10 @@ else:
     cmd.append("--load")
 
 print(f"🚀 Building image: {IMAGE}")
-print(f"🧱 Command: {' '.join(cmd)}")
+print(f"🧱 Command: docker {' '.join(cmd)}")
 
 try:
-    docker[cmd[1:]] & local.FG
+    docker[cmd].run_fg()
 except ProcessExecutionError as e:
     print(f"❌ Build failed: {e}")
     exit(1)
