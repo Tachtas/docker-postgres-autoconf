@@ -14,7 +14,7 @@ jobs:
 
     env:
       PG_VERSION: "17"
-      BASE_TAG: "17-alpine"  # ✅ gunakan alpine (multi-arch, valid)
+      BASE_TAG: "17-alpine"  # ✅ PENTING — tag resmi multi-arch
       DOCKER_REPO: tecnativa/postgres-autoconf
       DOCKER_TAG: 17-arm64
       GIT_SHA1: ${{ github.sha }}
@@ -22,7 +22,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v6
       - run: pip install -r tests/ci-requirements.txt
 
@@ -36,12 +35,7 @@ jobs:
 
       - name: Build Docker Image (ARM64)
         run: |
-          docker buildx build \
-            --platform linux/arm64 \
-            --build-arg BASE_TAG=${{ env.BASE_TAG }} \
-            -t ${{ env.DOCKER_REPO }}:${{ env.DOCKER_TAG }} \
-            --load \
-            .
+          BASE_TAG=${{ env.BASE_TAG }} ./hooks/build
 
       - name: Run tests
         run: python -m unittest tests.test -v
