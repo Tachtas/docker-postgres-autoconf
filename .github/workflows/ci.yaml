@@ -2,11 +2,8 @@ name: ci-arm64
 
 on:
   push:
-    branches:
-      - master
+    branches: [ master ]
   pull_request:
-  schedule:
-    - cron: 0 0 * * 0
 
 jobs:
   build-arm64:
@@ -14,7 +11,7 @@ jobs:
 
     env:
       PG_VERSION: "17"
-      BASE_TAG: "17-alpine"  # ✅ PENTING — tag resmi multi-arch
+      BASE_TAG: "17-alpine" # ✅ valid multi-arch base
       DOCKER_REPO: tecnativa/postgres-autoconf
       DOCKER_TAG: 17-arm64
       GIT_SHA1: ${{ github.sha }}
@@ -35,21 +32,13 @@ jobs:
 
       - name: Build Docker Image (ARM64)
         run: |
-          BASE_TAG=${{ env.BASE_TAG }} ./hooks/build
+          BASE_TAG=17-alpine ./hooks/build
 
       - name: Run tests
         run: python -m unittest tests.test -v
 
-      - name: Set Docker Tag
-        run: |
-          if [ "${{ env.IS_PR }}" = "true" ]; then
-            echo "DOCKER_TAG=17-arm64-pr${{ github.event.number }}" >> $GITHUB_ENV
-          else
-            echo "DOCKER_TAG=17-arm64" >> $GITHUB_ENV
-          fi
-
-      - name: Push Docker Image to GitHub Registry
-        if: github.repository == 'Tecnativa/docker-postgres-autoconf' && (env.IS_PR || github.ref == 'refs/heads/master')
+      - name: Push Docker Image to GHCR
+        if: github.repository == 'Tecnativa/docker-postgres-autoconf' && (github.ref == 'refs/heads/master' || github.event_name == 'pull_request')
         env:
           REGISTRY_HOST: ghcr.io
           REGISTRY_TOKEN: ${{ secrets.BOT_TOKEN }}
