@@ -14,6 +14,9 @@ BUILD_DATE = datetime.now(timezone.utc).isoformat()
 BASE_TAG = os.environ.get("BASE_TAG", "17-alpine")
 IMAGE = f"{os.environ.get('DOCKER_REPO', 'tecnativa/postgres-autoconf')}:{os.environ.get('DOCKER_TAG', BASE_TAG)}"
 
+# 🔧 GHCR & Docker require lowercase repo names
+IMAGE = IMAGE.lower()
+
 # --- Bersihkan suffix arsitektur kalau ada ---
 BASE_TAG = re.sub(r"-(arm64|amd64)$", "", BASE_TAG)
 
