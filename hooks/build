@@ -1,26 +1,62 @@
 #!/usr/bin/env python3
-from plumbum import FG, local
-from plumbum.cmd import date, docker
+import subprocess
+import os
+import re
+from datetime import datetime
+from plumbum import local
+from plumbum.commands.processes import ProcessExecutionError
 
-# Check environment variables are present
-DOCKER_TAG = local.env["DOCKER_TAG"]
-COMMIT = local.env.get("GIT_SHA1")
-DATE = date("--rfc-3339", "ns")
+docker = local["docker"]
 
-# Build image
-(
-    docker[
-        "image",
-        "build",
-        "--build-arg",
-        "VCS_REF={}".format(COMMIT),
-        "--build-arg",
-        "BUILD_DATE={}".format(DATE),
-        "--build-arg",
-        "BASE_TAG={}".format(DOCKER_TAG),
-        "--tag",
-        "tecnativa/postgres-autoconf:{}".format(DOCKER_TAG),
-        ".",
-    ]
-    & FG
+# --- Ambil argumen environment dari CI ---
+VCS_REF = os.environ.get("GIT_SHA1", "")
+BUILD_DATE = datetime.utcnow().isoformat()
+BASE_TAG = os.environ.get("BASE_TAG", "17-alpine")
+IMAGE = f"{os.environ.get('DOCKER_REPO', 'tecnativa/postgres-autoconf')}:{os.environ.get('DOCKER_TAG', BASE_TAG)}"
+
+# --- Bersihkan suffix arsitektur kalau ada ---
+BASE_TAG = re.sub(r"-(arm64|amd64)$", "", BASE_TAG)
+
+# --- Validasi base image ---
+base_image = f"docker.io/postgres:{BASE_TAG}"
+print(f"🔍 Checking if base image exists: {base_image}")
+
+check = subprocess.run(
+    ["docker", "manifest", "inspect", base_image],
+    capture_output=True,
 )
+
+if check.returncode != 0:
+    print(f"⚠️ Base image {base_image} not found, fallback ke postgres:17-alpine")
+    BASE_TAG = "17-alpine"
+    base_image = f"docker.io/postgres:{BASE_TAG}"
+
+print(f"✅ Using base image: {base_image}")
+
+# --- Build command ---
+cmd = [
+    "docker", "buildx", "build",
+    "--platform", "linux/arm64",
+    "--build-arg", f"VCS_REF={VCS_REF}",
+    "--build-arg", f"BUILD_DATE={BUILD_DATE}",
+    "--build-arg", f"BASE_TAG={BASE_TAG}",
+    "--tag", IMAGE,
+    ".",
+]
+
+# Jika CI variable REGISTRY_HOST diset, otomatis push
+if os.environ.get("REGISTRY_HOST"):
+    cmd.append("--push")
+else:
+    cmd.append("--load")
+
+print(f"🚀 Building image: {IMAGE}")
+print(f"🧱 Command: {' '.join(cmd)}")
+
+try:
+    docker[cmd[1:]] & local.FG
+except ProcessExecutionError as e:
+    print(f"❌ Build failed: {e}")
+    exit(1)
+
+print("✅ Build finished successfully.")
