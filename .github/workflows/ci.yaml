@@ -6,7 +6,7 @@ on:
       - master
   pull_request:
   schedule:
-    - cron: 0 0 * * 0  # Weekly build
+    - cron: 0 0 * * 0
 
 jobs:
   build-arm64:
@@ -14,31 +14,26 @@ jobs:
 
     env:
       PG_VERSION: "17"
-      BASE_TAG: "17"  # ✅ Debian-based, bukan Alpine
+      BASE_TAG: "17-alpine"  # ✅ pakai Alpine agar apk valid
       DOCKER_REPO: tecnativa/postgres-autoconf
       DOCKER_TAG: 17-arm64
       GIT_SHA1: ${{ github.sha }}
       IS_PR: ${{ github.event_name == 'pull_request' }}
 
     steps:
-      # 🧩 Checkout source
       - uses: actions/checkout@v4
 
-      # 🐍 Setup Python (for tests)
       - uses: actions/setup-python@v6
       - run: pip install -r tests/ci-requirements.txt
 
-      # ⚙️ Enable QEMU (to emulate ARM64)
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
-      # 🧱 Enable Docker Buildx
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
           install: true
 
-      # 🏗️ Build ARM64 image locally (for testing)
       - name: Build Docker Image (ARM64)
         run: |
           docker buildx build \
@@ -47,16 +42,13 @@ jobs:
             -t ${{ env.DOCKER_REPO }}:${{ env.DOCKER_TAG }} \
             --load \
             .
-      
-      # 🕒 Optional: Wait a bit to ensure Postgres is ready in slow emulation
+
       - name: Wait before tests
         run: sleep 10
 
-      # 🧪 Run tests
       - name: Run tests
         run: python -m unittest tests.test -v
 
-      # 🏷️ Set final tag (for PR vs master)
       - name: Set Docker Tag
         run: |
           if [ "${{ env.IS_PR }}" = "true" ]; then
@@ -65,7 +57,6 @@ jobs:
             echo "DOCKER_TAG=17-arm64" >> $GITHUB_ENV
           fi
 
-      # 🚀 Push to GitHub Container Registry (GHCR)
       - name: Push Docker Image to GitHub Registry
         if: github.repository == 'Tecnativa/docker-postgres-autoconf' && (env.IS_PR || github.ref == 'refs/heads/master')
         env:
