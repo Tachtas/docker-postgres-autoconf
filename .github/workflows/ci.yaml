@@ -14,7 +14,7 @@ jobs:
 
     env:
       PG_VERSION: "17"
-      BASE_TAG: "17-alpine"  # ✅ pakai Alpine agar apk valid
+      BASE_TAG: "17-alpine"  # ✅ gunakan alpine (multi-arch, valid)
       DOCKER_REPO: tecnativa/postgres-autoconf
       DOCKER_TAG: 17-arm64
       GIT_SHA1: ${{ github.sha }}
@@ -42,9 +42,6 @@ jobs:
             -t ${{ env.DOCKER_REPO }}:${{ env.DOCKER_TAG }} \
             --load \
             .
-
-      - name: Wait before tests
-        run: sleep 10
 
       - name: Run tests
         run: python -m unittest tests.test -v
